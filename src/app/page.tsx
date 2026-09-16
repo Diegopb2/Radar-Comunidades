@@ -38,6 +38,13 @@ export default function Home() {
     setResultado(res);
   }
 
+  // Pedido do Diego: botão X pra limpar o endereço — também tira o pino e o
+  // card de resultado do mapa, não só o texto do campo de busca.
+  function handleLimpar() {
+    setMarcador(null);
+    setResultado(null);
+  }
+
   // Pedido do Diego: clicar em qualquer ponto do mapa mostra a mesma info que
   // buscar aquele endereço — reverse-geocodifica o ponto clicado pra um
   // endereço legível e roda a mesma resolução de comunidade.
@@ -73,7 +80,7 @@ export default function Home() {
               (top-right), que senão fica colado/coberto pela busca em telas
               estreitas — ver responsividade pedida pelo Diego. */}
           <div className="pointer-events-auto w-full max-w-xl pr-[4.5rem] sm:pr-0">
-            <SearchBar onSelecionar={handleSelecionar} />
+            <SearchBar onSelecionar={handleSelecionar} onLimpar={handleLimpar} />
           </div>
 
           {carregandoClique && (

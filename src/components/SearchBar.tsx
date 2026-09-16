@@ -5,6 +5,9 @@ import { geocodeAddress, reverseGeocode, type GeocodeResult } from "@/lib/geocod
 
 interface Props {
   onSelecionar: (resultado: GeocodeResult) => void;
+  // Pedido do Diego: botão de limpar o campo de endereço (X). Opcional —
+  // quando informado, também limpa o pino/resultado no mapa (ver page.tsx).
+  onLimpar?: () => void;
 }
 
 // Nominatim pede no máximo 1 requisição/segundo — um debounce de 600ms
@@ -15,7 +18,7 @@ const DEBOUNCE_MS = 600;
 // grande e inútil e gasta chamada à toa.
 const MIN_CHARS = 5;
 
-export default function SearchBar({ onSelecionar }: Props) {
+export default function SearchBar({ onSelecionar, onLimpar }: Props) {
   const [query, setQuery] = useState("");
   const [opcoes, setOpcoes] = useState<GeocodeResult[]>([]);
   const [carregando, setCarregando] = useState(false);
@@ -66,6 +69,15 @@ export default function SearchBar({ onSelecionar }: Props) {
     if (!query.trim()) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     executarBusca(query);
+  }
+
+  function limpar() {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    abortRef.current?.abort();
+    setQuery("");
+    setOpcoes([]);
+    setErro(null);
+    onLimpar?.();
   }
 
   function selecionar(op: GeocodeResult) {
@@ -120,12 +132,28 @@ export default function SearchBar({ onSelecionar }: Props) {
           ou cortados — agora o botão "Buscar" quebra pra linha de baixo
           se não couber, em vez de sumir atrás de outro elemento. */}
       <form onSubmit={handleSubmit} className="flex flex-wrap gap-2">
-        <input
-          value={query}
-          onChange={(e) => handleChange(e.target.value)}
-          placeholder="Endereço, número ou CEP no Rio de Janeiro..."
-          className="flex-1 min-w-[9rem] bg-panel border border-border rounded-lg px-4 py-2.5 text-sm outline-none focus:border-gray-500"
-        />
+        <div className="relative flex-1 min-w-[9rem]">
+          <input
+            value={query}
+            onChange={(e) => handleChange(e.target.value)}
+            placeholder="Endereço, número ou CEP no Rio de Janeiro..."
+            // pr-9: espaço pro botão X não ficar em cima do texto digitado
+            className="w-full bg-panel border border-border rounded-lg px-4 pr-9 py-2.5 text-sm outline-none focus:border-gray-500"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={limpar}
+              title="Limpar endereço"
+              aria-label="Limpar endereço"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-white/10"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
         <button
           type="button"
           onClick={usarLocalizacaoAtual}
