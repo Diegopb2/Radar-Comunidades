@@ -22,6 +22,25 @@ const ZONA_LABEL: Record<string, string> = {
 
 export default function ResultPanel({ resultado }: { resultado: ConsultaResultado }) {
   if (!resultado.dentroDeComunidade || !resultado.comunidade) {
+    // Pedido do Diego: endereço fora de qualquer comunidade mas bem perto da
+    // borda de uma (ex: rua na divisa) merece um aviso, não só "fora de área
+    // mapeada" — sem indicar grupo/facção, só a distância (ver
+    // LIMIAR_PROXIMIDADE_METROS em lib/geo.ts).
+    if (resultado.proximidade) {
+      return (
+        <div className="bg-panel border border-amber-500/50 rounded-lg p-4 text-sm space-y-2">
+          <p className="text-gray-400 text-xs">{resultado.endereco}</p>
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-3 h-3 rounded-sm shrink-0 bg-amber-500" />
+            <span className="font-medium">Próximo a uma comunidade mapeada</span>
+          </div>
+          <p className="text-gray-400 text-xs">
+            {resultado.proximidade.comunidade.nome} — ~{resultado.proximidade.distanciaMetros} m de distância
+          </p>
+        </div>
+      );
+    }
+
     return (
       <div className="bg-panel border border-border rounded-lg p-4 text-sm space-y-1">
         <p className="font-medium">Fora de área mapeada como comunidade</p>

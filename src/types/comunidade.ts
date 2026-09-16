@@ -55,4 +55,10 @@ export interface ConsultaResultado {
   comunidade?: ComunidadeProperties;
   endereco: string;
   coordenadas: [number, number]; // [lng, lat]
+  /** Só preenchido quando dentroDeComunidade é false e a borda mais próxima
+   * fica a até LIMIAR_PROXIMIDADE_METROS (ver lib/geo.ts). */
+  proximidade?: {
+    comunidade: ComunidadeProperties;
+    distanciaMetros: number;
+  };
 }
