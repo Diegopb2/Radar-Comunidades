@@ -5,8 +5,10 @@ import MapView from "@/components/MapView";
 import SearchBar from "@/components/SearchBar";
 import ResultPanel from "@/components/ResultPanel";
 import Legend from "@/components/Legend";
-// Disclaimer removido da tela a pedido do Diego (comentado, não apagado, pra
-// reverter fácil se precisar) — import original: "@/components/Disclaimer"
+// Recolocado a pedido do Diego: o app vai ser divulgado pra comunidade real
+// de motoristas/entregadores, não só uso interno de teste — precisa do aviso
+// legal visível de novo.
+import Disclaimer from "@/components/Disclaimer";
 import { resolverEndereco } from "@/lib/geo";
 import type { ComunidadeFeatureCollection, ConsultaResultado } from "@/types/comunidade";
 import { reverseGeocode, type GeocodeResult } from "@/lib/geocode";
@@ -95,11 +97,13 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Disclaimer removido da tela a pedido do Diego. Ficava aqui:
+        {/* Recolocado a pedido do Diego pra divulgação pública — em telas
+            estreitas some o risco de colidir com o zoom control (top-right)
+            porque fica no canto oposto (bottom-right), abaixo da área onde
+            o ResultPanel/busca aparecem. */}
         <div className="absolute bottom-4 right-4 max-w-xs bg-panel/90 backdrop-blur border border-border rounded-lg p-3 pointer-events-auto">
           <Disclaimer />
         </div>
-        */}
       </div>
 
       {/* Rodapé com o crédito — cor de destaque (amarelo da marca, mesma
