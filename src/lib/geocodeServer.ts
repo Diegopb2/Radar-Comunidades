@@ -13,22 +13,22 @@
 // clicou). Reduz bastante a chance de tomar bloqueio de novo, mas não
 // elimina — pra produção de verdade, considere um provedor pago (Google,
 // LocationIQ) ou self-host do Nominatim (ver README).
-
+ 
 import { obterZona } from "@/lib/zonasRJ";
-
+ 
 export interface GeocodeResult {
   label: string;
   lat: number;
   lng: number;
   numeroAproximado?: boolean;
 }
-
+ 
 const NOMINATIM_BASE = "https://nominatim.openstreetmap.org";
 // Nominatim pede um User-Agent identificável — troque pelo domínio real quando publicar.
 const USER_AGENT = "radar-das-favelas/0.1 (contato: defina-um-email-de-contato)";
 const RJ_VIEWBOX = "-43.85,-22.72,-43.05,-23.10"; // bbox aproximado do Rio de Janeiro (Nominatim: left,top,right,bottom)
 const RJ_BBOX_PHOTON = "-43.85,-23.10,-43.05,-22.72"; // Photon: left,bottom,right,top
-
+ 
 // Photon (komoot.io) — outro geocoder gratuito baseado em dado OSM, sem
 // chave, mas host diferente do Nominatim. Usado só como fallback: se o
 // nominatim.openstreetmap.org der erro de rede (ex: bloqueio temporário de
@@ -37,7 +37,7 @@ const RJ_BBOX_PHOTON = "-43.85,-23.10,-43.05,-22.72"; // Photon: left,bottom,rig
 // Nominatim voltar a responder (não fica marcado permanentemente — cada
 // chamada nova tenta o Nominatim de novo primeiro).
 const PHOTON_BASE = "https://photon.komoot.io/api";
-
+ 
 // --- Fila que serializa toda chamada ao Nominatim com um intervalo mínimo
 // entre elas, dentro deste processo do servidor (o `next dev`/prod continua
 // um processo Node só, então essa variável de módulo persiste entre
@@ -50,14 +50,14 @@ async function aguardarVez(): Promise<void> {
   proximaLiberacao = Math.max(agora, proximaLiberacao) + 1100; // 1.1s de folga sobre o limite de 1 req/s
   if (espera > 0) await new Promise((r) => setTimeout(r, espera));
 }
-
+ 
 // --- Cache curto em memória — mesma consulta repetida em poucos minutos não
 // gera nova chamada externa. TTL curto de propósito: o dado geográfico do
 // OSM não muda a ponto de precisar de cache longo, isso aqui é só pra
 // absorver repetição de uso normal (digitar, pausar, editar). ---
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const cache = new Map<string, { timestamp: number; dados: unknown }>();
-
+ 
 function doCache<T>(chave: string): T | null {
   const entrada = cache.get(chave);
   if (!entrada) return null;
@@ -67,7 +67,7 @@ function doCache<T>(chave: string): T | null {
   }
   return entrada.dados as T;
 }
-
+ 
 function salvarCache(chave: string, dados: unknown): void {
   cache.set(chave, { timestamp: Date.now(), dados });
   // limpeza oportunista pra não crescer sem limite numa sessão de dev longa
@@ -76,13 +76,13 @@ function salvarCache(chave: string, dados: unknown): void {
     if (chaveMaisAntiga) cache.delete(chaveMaisAntiga);
   }
 }
-
+ 
 function extrairCEP(query: string): string | null {
   const digits = query.replace(/\D/g, "");
   const pareceSoCEP = /^\d{5}-?\d{3}$/.test(query.trim());
   return pareceSoCEP && digits.length === 8 ? digits : null;
 }
-
+ 
 // O OSM/Nominatim costuma indexar o nome da rua por extenso, mas o ViaCEP (e
 // muita gente digitando) usa abreviação — "Av.", "R.", "Jr" etc. Uma busca
 // que bate char-a-char com a abreviação dá 0 resultado mesmo a rua existindo
@@ -101,23 +101,47 @@ const ABREVIACOES: Array<[RegExp, string]> = [
   [/\bLgo\.?\b/gi, "Largo"],
   [/\bJr\.?\b/gi, "Junior"],
 ];
-
+ 
 function expandirAbreviacoes(texto: string): string {
   return ABREVIACOES.reduce((acc, [re, subst]) => acc.replace(re, subst), texto);
 }
-
+ 
+// Bug real reportado pelo Diego: "Travessa Barroso, Miguel Couto" não achava
+// nada, mesmo a rua existindo — o Nominatim conhece "Travessa Barroso" em
+// Nova Iguaçu, mas a área ali é indexada como "Parque Ambaí", não "Miguel
+// Couto" (que no OSM é o nome de uma rua ali perto, não do bairro/loteamento
+// como o morador local costuma chamar). Buscando rua+bairro como uma string
+// só, o Nominatim falha a consulta inteira se o segundo pedaço não bater
+// exatamente com o nome que ele conhece — mesmo a rua existindo sozinha.
+// Corrigido tentando a query completa primeiro e, se não achar nada, cortando
+// progressivamente os últimos pedaços (separados por vírgula) até sobrar só
+// a rua — cobre apelido de bairro errado, bairro digitado errado, ou bairro
+// que o OSM simplesmente não reconhece com esse nome.
+function variantesProgressivas(query: string): string[] {
+  const partes = query
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (partes.length <= 1) return [query];
+  const variantes: string[] = [];
+  for (let i = partes.length; i >= 1; i--) {
+    variantes.push(partes.slice(0, i).join(", "));
+  }
+  return variantes;
+}
+ 
 interface EnderecoCEP {
   logradouro?: string;
   bairro?: string;
   localidade?: string;
   uf?: string;
 }
-
+ 
 async function resolverCEP(cep: string): Promise<EnderecoCEP | null> {
   const chave = `cep-raw:${cep}`;
   const cacheado = doCache<EnderecoCEP | null>(chave);
   if (cacheado !== null) return cacheado;
-
+ 
   const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
   if (!res.ok) return null;
   const data = (await res.json()) as EnderecoCEP & { erro?: boolean };
@@ -125,7 +149,7 @@ async function resolverCEP(cep: string): Promise<EnderecoCEP | null> {
   salvarCache(chave, resultado);
   return resultado;
 }
-
+ 
 function variantesDeCEP(e: EnderecoCEP): string[] {
   const completo = [e.logradouro, e.bairro, e.localidade, e.uf].filter(Boolean).join(", ");
   const semBairro = [e.logradouro, e.localidade].filter(Boolean).join(", ");
@@ -134,7 +158,7 @@ function variantesDeCEP(e: EnderecoCEP): string[] {
   if (expandido !== completo) variantes.push(expandido, expandirAbreviacoes(semBairro));
   return [...new Set(variantes.filter(Boolean))];
 }
-
+ 
 interface NominatimHit {
   display_name: string;
   lat: string;
@@ -150,7 +174,7 @@ interface NominatimHit {
     municipality?: string;
   };
 }
-
+ 
 async function buscarNominatim(
   params: Record<string, string>
 ): Promise<NominatimHit[]> {
@@ -164,7 +188,7 @@ async function buscarNominatim(
   const chave = `nominatim:${usp.toString()}`;
   const cacheado = doCache<NominatimHit[]>(chave);
   if (cacheado) return cacheado;
-
+ 
   await aguardarVez();
   const res = await fetch(`${NOMINATIM_BASE}/search?${usp}`, {
     headers: { "User-Agent": USER_AGENT },
@@ -174,7 +198,7 @@ async function buscarNominatim(
   salvarCache(chave, dados);
   return dados;
 }
-
+ 
 // Pedido do Diego: o card de resultado mostrava "Região Sudeste" — o
 // display_name do Nominatim concatena TODA a hierarquia administrativa do
 // OSM (rua, bairro, cidade, região metropolitana, ESTADO, GRANDE REGIÃO,
@@ -186,22 +210,22 @@ async function buscarNominatim(
 function montarLabelNominatim(hit: NominatimHit): string {
   const addr = hit.address;
   if (!addr) return hit.display_name;
-
+ 
   const rua = [addr.house_number, addr.road].filter(Boolean).join(" ");
   const bairro = addr.neighbourhood || addr.suburb || addr.city_district;
   const zona = obterZona(bairro) ?? obterZona(addr.city_district);
   const cidade = addr.city || addr.town || addr.municipality;
-
+ 
   const partes = [rua, bairro, zona ?? cidade].filter((p): p is string => !!p);
   // dedup consecutivo (ex: bairro igual ao que a zona já cobriria)
   const vistos = new Set<string>();
   const label = partes
     .filter((p) => !vistos.has(p) && (vistos.add(p), true))
     .join(", ");
-
+ 
   return label || hit.display_name;
 }
-
+ 
 function paraResultado(hit: NominatimHit, numeroBuscado: string | null): GeocodeResult {
   const numeroAproximado = !!numeroBuscado && hit.address?.house_number !== numeroBuscado;
   return {
@@ -211,7 +235,7 @@ function paraResultado(hit: NominatimHit, numeroBuscado: string | null): Geocode
     numeroAproximado,
   };
 }
-
+ 
 interface PhotonFeature {
   geometry: { coordinates: [number, number] }; // [lon, lat]
   properties: {
@@ -225,7 +249,7 @@ interface PhotonFeature {
     country?: string;
   };
 }
-
+ 
 function montarLabelPhoton(props: PhotonFeature["properties"]): string {
   const rua = [props.housenumber, props.street].filter(Boolean).join(" ");
   // Mesmo motivo do montarLabelNominatim acima: props.state do Photon pro
@@ -240,19 +264,19 @@ function montarLabelPhoton(props: PhotonFeature["properties"]): string {
     .filter((p): p is string => !!p && !vistos.has(p) && (vistos.add(p), true))
     .join(", ");
 }
-
+ 
 async function buscarPhoton(query: string, numeroBuscado: string | null): Promise<GeocodeResult[]> {
   const chave = `photon:${query}`;
   const cacheado = doCache<GeocodeResult[]>(chave);
   if (cacheado) return cacheado;
-
+ 
   // Photon só aceita lang default/de/en/fr — "pt" dá 400. Deixa no default
   // (retorna o nome como tá no OSM, que já costuma ser o nome local mesmo).
   const usp = new URLSearchParams({ q: query, limit: "5", bbox: RJ_BBOX_PHOTON });
   const res = await fetch(`${PHOTON_BASE}/?${usp}`, { headers: { "User-Agent": USER_AGENT } });
   if (!res.ok) throw new Error(`Photon falhou: ${res.status}`);
   const data = (await res.json()) as { features: PhotonFeature[] };
-
+ 
   const resultados = data.features
     .filter((f) => f.properties.street || f.properties.name) // descarta hits sem nome útil
     .map((f) => ({
@@ -261,11 +285,11 @@ async function buscarPhoton(query: string, numeroBuscado: string | null): Promis
       lng: f.geometry.coordinates[0],
       numeroAproximado: !!numeroBuscado && f.properties.housenumber !== numeroBuscado,
     }));
-
+ 
   salvarCache(chave, resultados);
   return resultados;
 }
-
+ 
 // Tenta o Nominatim (várias variantes, primeiro restrito ao Rio, depois sem
 // restrição geográfica) e só recorre ao Photon se o Nominatim der erro de
 // rede/HTTP — "achou 0 resultado" não conta como falha, só "não conseguiu
@@ -292,7 +316,7 @@ async function buscarComFallback(
     return [];
   }
 }
-
+ 
 /**
  * Busca endereço/CEP/número — mesma lógica de antes (ver comentário no topo
  * do arquivo pra por que isso agora roda no servidor).
@@ -304,17 +328,17 @@ export async function buscarEndereco(query: string): Promise<GeocodeResult[]> {
     if (!endereco) return [];
     return buscarComFallback(variantesDeCEP(endereco));
   }
-
+ 
   const matchNumero = query.match(/\b(\d{1,6}[a-zA-Z]?)\b/);
   const numero = matchNumero ? matchNumero[1] : null;
-
+ 
   if (numero) {
     const rua = query
       .replace(matchNumero![0], " ")
       .replace(/,/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-
+ 
     for (const ruaTentativa of [...new Set([rua, expandirAbreviacoes(rua)])]) {
       try {
         const hitsEstruturado = await buscarNominatim({
@@ -331,10 +355,12 @@ export async function buscarEndereco(query: string): Promise<GeocodeResult[]> {
       }
     }
   }
-
-  return buscarComFallback([...new Set([query, expandirAbreviacoes(query)])], numero);
+ 
+  const progressivas = variantesProgressivas(query);
+  const todasVariantes = [...new Set(progressivas.flatMap((v) => [v, expandirAbreviacoes(v)]))];
+  return buscarComFallback(todasVariantes, numero);
 }
-
+ 
 /**
  * Reverse geocoding — usado tanto pelo botão "usar minha localização atual"
  * quanto pelo clique no mapa.
@@ -343,7 +369,7 @@ export async function buscarReverso(lat: number, lng: number): Promise<string> {
   const chave = `reverse:${lat.toFixed(5)},${lng.toFixed(5)}`;
   const cacheado = doCache<string>(chave);
   if (cacheado) return cacheado;
-
+ 
   let label: string;
   try {
     await aguardarVez();
@@ -365,7 +391,7 @@ export async function buscarReverso(lat: number, lng: number): Promise<string> {
     const data = (await res.json()) as { features?: PhotonFeature[] };
     label = data.features?.[0] ? montarLabelPhoton(data.features[0].properties) : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
   }
-
+ 
   salvarCache(chave, label);
   return label;
 }
